@@ -1,0 +1,196 @@
+using System;
+using Newtonsoft.Json;
+using System.Net.Http.Headers;
+using Models.DTO;
+using System.Text;
+using Newtonsoft.Json.Linq;
+using System.Globalization;
+using System.Linq;
+
+class Program
+{
+    public class Ganador_EnPartida
+    {
+        public string Nombre_programa { get; set; }
+        public List<string> CartasGanadas_programa { get; set; }
+    }
+
+    static async Task Main(string[] args)
+    {
+        List<Ganador_EnPartida> ganadores = new List<Ganador_EnPartida>();
+        while (true)
+        {
+            Console.WriteLine("== MENÚ ==\n");
+            Console.WriteLine("1. Jugar");
+            Console.WriteLine("2. Mostrar Ganadores");
+            Console.WriteLine("3. Mostrando Ganadores x Fecha");
+            Console.WriteLine("4. Salir\n");
+            Console.Write("Ingrese la opción deseada: ");
+            string opcion = Console.ReadLine();
+
+
+            HttpClient client = new HttpClient();
+            client.BaseAddress = new Uri("https://localhost:44301");
+            client.DefaultRequestHeaders.Accept.Clear();
+            client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+           
+
+            switch (opcion)
+            {
+                
+                case "1":
+                    Console.WriteLine("\n--- Jugando ---\n");
+
+                    List<CartasDto> lstCartas = null;
+                    string Path = client.BaseAddress + "api/Loteria/MostrarCartas";
+
+                    HttpResponseMessage response = await client.GetAsync(Path);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var json = await response.Content.ReadAsStringAsync();
+                        lstCartas = JsonConvert.DeserializeObject<List<CartasDto>>(json);
+                    }
+                    Random rnd = new Random();
+                    List<CartasDto> cartasMezcladas = lstCartas.OrderBy(x => rnd.Next()).ToList();
+
+                    List<string> lstCartasGanadas = new List<string>();
+
+                    List<string> lstCartasJugadas = new List<string>();
+
+                    string Ganador = null;
+
+                    int cartasRestantes = cartasMezcladas.Count;
+
+                    foreach (var carta in cartasMezcladas)
+                    {
+                        Console.WriteLine($"**{carta.Nombre_carta.ToUpper()}**\n");
+                        Console.WriteLine($"Cartas restantes: {cartasRestantes - 1}\n");
+                        lstCartasGanadas.Add(carta.Id_cartas.ToString());
+                        lstCartasJugadas.Add(carta.Nombre_carta);
+                        Console.Write("¿Ganador? (S/N): ");
+                        string respuesta = Console.ReadLine().ToUpper();
+                        Console.WriteLine("\n");
+
+                        cartasRestantes--;
+
+                        if (respuesta == "S")
+                        {
+                            Console.WriteLine("\n=== Resumen del juego ===\n");
+                            foreach (var cartas in lstCartasJugadas)
+                            {
+                                Console.WriteLine(cartas.Trim().ToUpper());
+                            }
+                            Console.Write("¿Renaudar Partida? (S/N): ");
+                            string respuesta_renaudar = Console.ReadLine().ToUpper();
+
+                            if(respuesta_renaudar == "S")
+                            {
+                                continue;
+                            }
+                            else
+                            {
+                                Console.WriteLine("\n=== Nombre del Ganador ===\n");
+                                Console.Write("Ingresa Nombre del Ganador: ");
+                                Ganador = Console.ReadLine();
+
+
+                                ganadores.Add(new Ganador_EnPartida { Nombre_programa = Ganador, CartasGanadas_programa = new List<string>(lstCartasJugadas) });
+
+                                AgregarGanadoresDTO agregarGanador = new AgregarGanadoresDTO
+                                {
+                                    Cartas_ganadas = string.Join(",", lstCartasGanadas),
+                                    Nombre_ganador = Ganador
+                                };
+
+                                Path = client.BaseAddress + "api/Loteria/AgregarGanadores";
+                                var json = JsonConvert.SerializeObject(agregarGanador);
+                                var httpContent = new StringContent(json, Encoding.UTF8, "application/json");
+                                response = await client.PostAsync(Path, httpContent);
+                                break;
+                            }
+                        }
+                    }
+                    break;
+                case "2":
+                    Console.WriteLine("\n--- Mostrar Ganadores ---\n");
+
+                    int contadorPartida_programa = 1;
+                    foreach (var ganador in ganadores)
+                    {
+                        
+                        Console.WriteLine($"{contadorPartida_programa}° Partida\n");
+                        Console.WriteLine($"Nombre: {ganador.Nombre_programa}");
+                        var cartasganadas = string.Join(",", ganador.CartasGanadas_programa);
+                        foreach (var cartas_separadas in cartasganadas.Split(','))
+                        {
+                            Console.WriteLine(cartas_separadas.Trim());
+                        }
+
+                        Console.WriteLine();
+                        contadorPartida_programa++;
+                    }
+
+                    break;
+                case "3":
+                    Console.WriteLine("\n--- Mostrando Ganadores x Fecha ---\n");
+                    List<MostrarGanadoresDto> lstGanadores = null;
+                    Path = client.BaseAddress + "api/Loteria/MostrarGanadores";
+
+                    response = await client.GetAsync(Path);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var json = await response.Content.ReadAsStringAsync();
+                        lstGanadores = JsonConvert.DeserializeObject<List<MostrarGanadoresDto>>(json);
+                    }
+
+                    var fechasDisponibles = lstGanadores.Select(g => g.Fecha.ToString("MM/dd/yyyy")).Distinct();
+
+                    Console.WriteLine("Fechas Disponibles:");
+                    foreach (var fecha in fechasDisponibles)
+                    {
+                        Console.WriteLine(fecha);
+                    }
+
+                    Console.WriteLine("Ingresa una fecha (DD/MM/AAAA):");
+                    var fechaIngresada = Console.ReadLine();
+
+                    if (DateTime.TryParseExact(fechaIngresada, "MM/dd/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var fechaValida))
+                    {
+                        if (fechasDisponibles.Contains(fechaIngresada))
+                        {
+                            int contadorPartida = 1;
+                            var ganadoresFecha = lstGanadores.Where(g => g.Fecha.ToString("MM/dd/yyyy") == fechaIngresada);
+                            foreach (var ganador in ganadoresFecha)
+                            {
+                                Console.WriteLine($"{contadorPartida}° Partida\n");
+                                Console.WriteLine($"Ganador: {ganador.Ganador}");
+                                var cartasGanadas = ganador.Carta_ganada.Split(',');
+                                foreach (var carta in cartasGanadas)
+                                {
+                                    Console.WriteLine(carta.Trim());
+                                }
+                                Console.WriteLine("\n");
+                                contadorPartida++;
+                            }
+                        }
+                        else
+                        {
+                            Console.WriteLine("Fecha no disponible. Ingresa una fecha válida.");
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine("Fecha ingresada no válida. Ingresa una fecha válida.");
+                    }
+                    break;
+                case "4":
+                    return;
+                default:
+                    Console.WriteLine("\nOpción inválida\n");
+                    break;
+            }
+        }
+
+    }
+}
